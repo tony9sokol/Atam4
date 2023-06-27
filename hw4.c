@@ -13,7 +13,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#include "elf64.h"
+#include "elf64 (1).h"
 
 #define  ET_NONE  0  //No file type
 #define  ET_REL  1  //Relocatable file
