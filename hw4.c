@@ -15,23 +15,32 @@
 
 #include "elf64.h"
 
-#define	ET_NONE	0	//No file type 
-#define	ET_REL	1	//Relocatable file 
-#define	ET_EXEC	2	//Executable file 
-#define	ET_DYN	3	//Shared object file 
-#define	ET_CORE	4	//Core file 
+#define  ET_NONE  0  //No file type
+#define  ET_REL  1  //Relocatable file
+#define  ET_EXEC  2  //Executable file
+#define  ET_DYN  3  //Shared object file
+#define  ET_CORE  4  //Core file
 
 
-/* symbol_name		- The symbol (maybe function) we need to search for.
- * exe_file_name	- The file where we search the symbol in.
- * error_val		- If  1: A global symbol was found, and defined in the given executable.
- * 			- If -1: Symbol not found.
- *			- If -2: Only a local symbol was found.
- * 			- If -3: File is not an executable.
- * 			- If -4: The symbol was found, it is global, but it is not defined in the executable.
- * return value		- The address which the symbol_name will be loaded to, if the symbol was found and is global.
+/* symbol_name    - The symbol (maybe function) we need to search for.
+ * exe_file_name  - The file where we search the symbol in.
+ * error_val    - If  1: A global symbol was found, and defined in the given executable.
+ *       - If -1: Symbol not found.
+ *      - If -2: Only a local symbol was found.
+ *       - If -3: File is not an executable.
+ *       - If -4: The symbol was found, it is global, but it is not defined in the executable.
+ * return value    - The address which the symbol_name will be loaded to, if the symbol was found and is global.
  */
-
+int table_len(char* strtab, Elf64_Word st_name) {
+    //including null-terminator
+    int length = 0;
+    char c = strtab[st_name];
+    while (c != 0) {
+        length++;
+        c = strtab[st_name +length];
+    }
+    return length+1;
+}
 
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val) {
     int symbol_name_length = strlen(symbol_name);
@@ -63,30 +72,31 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
     int symtab_total_size = my_symtab.sh_size;
     int numentries = (int) (symtab_total_size / sizeof(Elf64_Sym));
     Elf64_Sym symbols[numentries];
-	fseek(exe_file, symtab_header.sh_offset, SEEK_SET);
-    fread(symbols, sizeof(Elf64_Sym), num_entries, file);
-	  char strtab[strtab_header.sh_size];
-    fseek(exe_file, my_strtab.sh_offset, SEEK_SET);
-    fread(strtab, my_strtab.sh_size, 1, exe_file);
+    fseek(file, my_symtab.sh_offset, SEEK_SET);
+    fread(symbols, sizeof(Elf64_Sym), numentries, file);
+    char strtab[my_strtab.sh_size];
+    fseek(file, my_strtab.sh_offset, SEEK_SET);
+    fread(strtab, my_strtab.sh_size, 1, file);
 
-int index_of_symbol = -1;
-    int len;
+    int index_of_symbol = -1;
+    int length;
     bool is_local = false;
-    bool global_exists = false;
-bool exist=false
-   for(int i = 0; i<numentries; i++){
+    bool is_global = false;
+    bool exists=false;
+    bool defined=true;
+    for(int i = 0; i<numentries; i++){
         length = table_len(strtab,symbols[i].st_name);
         char name[length];
         char* source = strtab + symbols[i].st_name;
         strncpy(name, source, length);
         if(strcmp(symbol_name, name)==0){
-	index_of_symbol=i
-	exist=true
+            index_of_symbol=i;
+            exists=true;
             if (ELF64_ST_BIND(symbols[i].st_info) == 0) {
-                is_global = 1;
+                is_local = 1;
             }
             if (ELF64_ST_BIND(symbols[i].st_info) == 1)
-                is_local = 1;
+                is_global = 1;
         }
     }
     if (!exists) {
@@ -113,30 +123,19 @@ bool exist=false
 }
 
 
-int table_len(char* strtab, Elf64_Word st_name) {
-    //including null-terminator
-    int length = 0;
-    char c = strtab[st_name];
-    while (c != 0) {
-        length++;
-        c = strtab[st_name +length];
-    }
-    return length+1;
-}
-
 int main(int argc, char *const argv[]) {
-	int err = 0;
-	unsigned long addr = find_symbol(argv[1], argv[2], &err);
+    int err = 0;
+    unsigned long addr = find_symbol(argv[1], argv[2], &err);
 
-	if (err >= 0)
-		printf("PRF:: %s will be loaded to 0x%lx\n", argv[1], addr);
-	else if (err == -2)
-		printf("PRF:: %s is not a global symbol! :(\n", argv[1]);
-	else if (err == -1)
-		printf("PRF:: %s not found!\n", argv[1]);
-	else if (err == -3)
-		printf("PRF:: %s not an executable! :(\n", argv[2]);
-	else if (err == -4)
-		printf("PRF:: %s is a global symbol, but will come from a shared library\n", argv[1]);
-	return 0;
+    if (err >= 0)
+        printf("%s will be loaded to 0x%lx\n", argv[1], addr);
+    else if (err == -2)
+        printf("%s is not a global symbol! :(\n", argv[1]);
+    else if (err == -1)
+        printf("%s not found!\n", argv[1]);
+    else if (err == -3)
+        printf("%s not an executable! :(\n", argv[2]);
+    else if (err == -4)
+        printf("%s is a global symbol, but will come from a shared library\n", argv[1]);
+    return 0;
 }
