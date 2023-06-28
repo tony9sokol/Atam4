@@ -42,6 +42,7 @@ int table_len(char* strtab, Elf64_Word st_name) {
     return length+1;
 }
 
+
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val) {
     int symbol_name_length = strlen(symbol_name);
     FILE *file = fopen(exe_file_name, "rb");
@@ -108,7 +109,7 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
     if (is_global && defined) {
         *error_val = 1;
         fclose(file);
-        return symbols[index_of_symbol].st_value;
+        return (symbols[index_of_symbol].st_value);
     }
     if (is_global && !defined) {
         *error_val = -4;
@@ -121,21 +122,97 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
         return 0;
     }
 }
+pid_t run_target(const char * programname){
+    pid_t pid;
+    pid=fork();
+    if(pid>0){
+        return pid;
+    }
+    else if(pid==0){
+    if(ptrace(PTRACE_TRACEME,0,NULL,NULL)<0){
+        perror("ptrace")
+        exit(1);
+    }
+    execl(programname,programname,NULL);
+    }
+    else{
+        perror("fork");
+        exit(1);
+    }
+}
+
+
+void run_dubugger(pid_t child_pid, unsigned long addr) {
+    int wait_status;
+    int icounter = 0;
+    struct user_regs_struct regs;
+    int curr_rsp;
+    bool end = false;
+    long data = ptrace(PTRACE_PEEKTEXT, chikd_pid, (void *) addr, NULL);
+    unsigned long data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+    ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data_trap);
+    ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+    while (WIFSTOPPED(wait_status)) {
+        end = false;
+        wait(&wait_status);
+        icounter++;
+        ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+        curr_rsp = regs.rsp;
+        printf("PRF::#%s first parameter is %s\n", icounter, regs.rdi);
+        ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data);
+        regs.rip-=1;
+        ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+        while (!end) {
+            if (ptrace(PTRACE_SINGLESTEP, chil_pid, NULL, NULL) < 0) {
+                perror("ptrace");
+                return;
+            }
+            wait(&wait_status);
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+            if (regs.rsp > curr_rsp) {
+                printf("PRF::#%s return with %s\n", icounter, regs.rax);
+                end = true;
+            }
+        }
+        ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data_trap);
+        ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+
+    }
+}
+
+
+
+
+
+    if(out of return)
+        print rax
+    printf
+
+
+
+}
+
+
 
 
 int main(int argc, char *const argv[]) {
     int err = 0;
     unsigned long addr = find_symbol(argv[1], argv[2], &err);
 
-    if (err >= 0)
-        printf("%s will be loaded to 0x%lx\n", argv[1], addr);
-    else if (err == -2)
+     if (err == -2)
         printf("%s is not a global symbol! :(\n", argv[1]);
     else if (err == -1)
         printf("%s not found!\n", argv[1]);
     else if (err == -3)
         printf("%s not an executable! :(\n", argv[2]);
-    else if (err == -4)
-        printf("%s is a global symbol, but will come from a shared library\n", argv[1]);
-    return 0;
+    if (err == 1||err==-4){
+        pid_t child_pid;
+        child_pid = run_target(argv[1]);
+        run_debugger(child_pid,addr);
+
+    }
+
+
+
+
 }
