@@ -259,10 +259,11 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
     long data_plt;
     unsigned long data;
     unsigned long data_trap;
+    bool end;
 
     if (stage5) {
         wait(&wait_status);
-        unsigned long real_plt_addr = get_real_plt_entry_addr(exe_file_name, index);
+        unsigned long real_plt_addr = get_plt(file_name, index);
         data_plt = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, NULL);
         data_trap_plt = (data_plt & 0xFFFFFFFFFFFFFF00) | 0xCC;
         ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data_trap_plt);
@@ -305,7 +306,7 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
         curr_rsp = regs.rsp;
         printf("PRF::#%s first parameter is %s\n", icounter, (int) regs.rdi);
         ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data);
-        bool end = false;
+        end = false;
         while (!end && !WIFEXITED(wait_status)) {
             if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0) {
                 perror("ptrace");
@@ -317,29 +318,33 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
                 printf("PRF::#%s return with %s\n", icounter, (int) regs.rax);
                 end = true;
             }
-
+        }
 
             data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, NULL);
             data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
             ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, (void *) data_trap);
             ptrace(PTRACE_CONT, child_pid, 0, 0);
         }
-    } else {
+    else {
         wait(&wait_status);
         data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, NULL);
         data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
         ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data_trap);
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
-        while (!WIFEXITED(wait_status)) {
+        while (true) {
             wait(&wait_status);
+            if (WIFEXITED(wait_status)) {
+                return;
+            }
             icounter++;
             ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
             curr_rsp = regs.rsp;
-            printf("PRF::#%s first parameter is %s\n", icounter, regs.rdi);
-            ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data);
-            regs.rip-=1;
+            printf("PRF::#%s first parameter is %s\n", icounter, (int) regs.rdi);
+            ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data);
+            regs.rip -= 1;
             ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
-            while (!end) {
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+            while (!end && !WIFEXITED(wait_status)) {
                 if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0) {
                     perror("ptrace");
                     return;
@@ -347,16 +352,20 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
                 wait(&wait_status);
                 ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
                 if (regs.rsp > curr_rsp) {
-                    printf("PRF::#%s return with %s\n", icounter, regs.rax);
+                    printf("PRF::#%s return with %s\n", icounter, (int) regs.rax);
                     end = true;
                 }
             }
-            ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data_trap);
-            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
+
+            data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, NULL);
+            data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+            ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data_trap);
+            ptrace(PTRACE_CONT, child_pid, 0, 0);
         }
+        ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data);
 
-
+    }
 
 
 
