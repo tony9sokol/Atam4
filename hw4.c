@@ -198,9 +198,9 @@ pid_t run_target(const char * programname){
     else if(pid==0){
     if(ptrace(PTRACE_TRACEME,0,NULL,NULL)<0){
         perror("ptrace");
-        exit(1);
+        return 0;
     }
-    execl(programname,programname,NULL);
+    execv(programname,&programname);
     }
     else{
         perror("fork");
@@ -209,18 +209,97 @@ pid_t run_target(const char * programname){
 }
 
 
-void run_debugger(pid_t child_pid, unsigned long addr) {
+void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long loaded_to,int index,unsigned long plt_addr,char* file_name) {
     int wait_status;
     int icounter = 0;
+    int ret_value=0;
+    int first;
+    int ret_data;
     struct user_regs_struct regs;
-    int curr_rsp;
-    bool end = false;
-    long data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, NULL);
-    unsigned long data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
-    ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data_trap);
-    ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+    bool is_first_time=true;
+    unsigned long plt_of_data_trap;
+    unsigned long real_addr = addr;
+    unsigned long long curr_rsp;
+    unsigned long data_trap_plt;
+    long data_plt;
+    unsigned long data;
+    unsigned long data_trap;
+
+    if(stage5) {
+        wait(&wait_status);
+        unsigned long real_plt_addr = get_real_plt_entry_addr(exe_file_name, index);
+        data_plt = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, NULL);
+        data_trap_plt = (data_plt & 0xFFFFFFFFFFFFFF00) | 0xCC;
+        ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data_trap_plt);
+        ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        wait(&wait_status);
+        if (WIFEXITED(wait_status)) {
+            printf("out");
+            return;
+        }
+        ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+        ptrace(PTRACE_POKETEXT, child_pid, (void *) real_plt_addr, (void *) data_plt);
+        regs.rip -= 1;
+        ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+        unsigned long original_loaded_to = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) loaded_to, NULL);
+        unsigned long curr_loaded_to = original_loaded_to;
+
+        while (original_loaded_to == curr_loaded_to) {
+            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+            wait(&wait_status);
+            if (WIFEXITED(wait_status))
+                return;
+            //save current memory value
+            curr_loaded_to = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) loaded_to, NULL);
+        }
+        first = false;
+        real_addr = curr_loaded_to;
+        ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+        while (regs.rip != real_addr) {
+            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+            wait(&wait_status);
+            if (WIFEXITED(wait_status)) {
+                return;
+            }
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+        }
+
+
+        icounter++;
+        ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+        curr_rsp = regs.rsp;
+        printf("PRF::#%s first parameter is %s\n", icounter, (int) regs.rdi);
+        ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data);
+        bool end = false;
+        while (!end && !WIFEXITED(wait_status)) {
+            if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0) {
+                perror("ptrace");
+                return;
+            }
+            wait(&wait_status);
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+            if (regs.rsp > curr_rsp) {
+                printf("PRF::#%s return with %s\n", icounter, (int) regs.rax);
+                end = true;
+            }
+
+
+            data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, NULL);
+            data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+            ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, (void *) data_trap);
+            ptrace(PTRACE_CONT, child_pid, 0, 0);
+        }
+    }
+    else{
+
+    }
+
+
+
+
+
+/*
     while (WIFSTOPPED(wait_status)) {
-        end = false;
         wait(&wait_status);
         icounter++;
         ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
@@ -247,7 +326,7 @@ void run_debugger(pid_t child_pid, unsigned long addr) {
     }
 }
 
-
+*/
 
 
 
@@ -261,10 +340,33 @@ int main(int argc, char *const argv[]) {
         printf("%s not found!\n", argv[1]);
     else if (err == -3)
         printf("%s not an executable! :(\n", argv[2]);
+
+    bool stage_5 = false;
+    unsigned long address =0;
+
+    if (err== -4) {
+        stage_5 = true;
+    } else {
+        address = addr;
+    }
+    unsigned long loaded_to = 0;
+    unsigned long *output_plt_entry;
+    int nop = 0;
+    int *index = &nop;
+
+    if (stage_5) {
+        loaded_to = addr;
+    }
+    if (loaded_to == -1) {
+        printf("Did not find symbol in dymsym\n");
+        return -1;
+    }
+
+
     if (err == 1||err==-4){
         pid_t child_pid;
-        child_pid = run_target(argv[1]);
-        run_debugger(child_pid,addr);
+        child_pid = run_target(argv[2]);
+        run_debugger(child_pid,addr,stage_5,loaded_to,*index,*output_plt_entry,argv[2]);
 
     }
 
