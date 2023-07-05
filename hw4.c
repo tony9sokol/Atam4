@@ -43,7 +43,7 @@ int table_len(char* strtab, Elf64_Word st_name) {
 }
 
 
-Elf64_Addr get_absolute_addr( char* symbol_name, FILE* file, Elf64_Ehdr header1, Elf64_Shdr* sectable){
+unsigned long get_absolute_addr( char* symbol_name, FILE* file, Elf64_Ehdr header1, Elf64_Shdr* sectable){
     Elf64_Shdr my_relaplt_table;
     Elf64_Shdr my_dynsym;
     Elf64_Shdr my_dynstr;
@@ -106,6 +106,33 @@ Elf64_Addr get_absolute_addr( char* symbol_name, FILE* file, Elf64_Ehdr header1,
          }
      }
     return 0;
+}
+
+unsigned long get_plt(FILE* file, Elf64_Ehdr header1, Elf64_Shdr* sectable, int index) {
+
+    int index_of_strtab = header1.e_shstrndx;
+    Elf64_Shdr strtab_header = sectable[index_of_strtab];
+    char strtab[strtab_header.sh_size];
+    fseek(file, strtab_header.sh_offset, SEEK_SET);
+    fread(strtab, strtab_header.sh_size, 1, file);
+
+    int length;
+
+    //get .plt
+    Elf64_Shdr plt;
+    for (int i = 0; i < header1.e_shnum; i++) {
+        length = table_len(strtab, sectable[i].sh_name);
+        char name[length];
+        char* source = strtab + sectable[i].sh_name;
+        strncpy(name, source, length);
+
+
+        if (strcmp(".plt", name) == 0) {
+            plt = sectable[i];
+        }
+    }
+
+    return plt.sh_addr + plt.sh_entsize * (index+1);
 }
 
 
