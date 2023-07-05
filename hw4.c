@@ -239,11 +239,11 @@ pid_t run_target(const char * programname){
 void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long loaded_to,int index,unsigned long plt_addr,char* file_name) {
     int wait_status;
     int icounter = 0;
-    int ret_value=0;
+    int ret_value = 0;
     int first;
     int ret_data;
     struct user_regs_struct regs;
-    bool is_first_time=true;
+    bool is_first_time = true;
     unsigned long plt_of_data_trap;
     unsigned long real_addr = addr;
     unsigned long long curr_rsp;
@@ -252,7 +252,7 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
     unsigned long data;
     unsigned long data_trap;
 
-    if(stage5) {
+    if (stage5) {
         wait(&wait_status);
         unsigned long real_plt_addr = get_real_plt_entry_addr(exe_file_name, index);
         data_plt = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, NULL);
@@ -316,8 +316,59 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
             ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, (void *) data_trap);
             ptrace(PTRACE_CONT, child_pid, 0, 0);
         }
+    } else {
+        wait(&wait_status);
+        data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) real_addr, NULL);
+        data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+        ptrace(PTRACE_POKETEXT, child_pid, (void *) real_addr, (void *) data_trap);
+        ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        while (!WIFEXITED(wait_status)) {
+            wait(&wait_status);
+            icounter++;
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+            curr_rsp = regs.rsp;
+            printf("PRF::#%s first parameter is %s\n", icounter, regs.rdi);
+            ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data);
+            regs.rip-=1;
+            ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+            while (!end) {
+                if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0) {
+                    perror("ptrace");
+                    return;
+                }
+                wait(&wait_status);
+                ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+                if (regs.rsp > curr_rsp) {
+                    printf("PRF::#%s return with %s\n", icounter, regs.rax);
+                    end = true;
+                }
+            }
+            ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data_trap);
+            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
     }
-    else{
+
+
+
+
+
+
+
+
+
 
     }
 
@@ -356,11 +407,11 @@ void run_debugger(pid_t child_pid, unsigned long addr,bool stage5,unsigned long 
 */
 
 
-
+}
 int main(int argc, char *const argv[]) {
     int err = 0;
     unsigned long addr = find_symbol(argv[1], argv[2], &err);
-
+    unsigned long trampo= get_plt(argv[2],)
      if (err == -2)
         printf("%s is not a global symbol! :(\n", argv[1]);
     else if (err == -1)
