@@ -108,31 +108,39 @@ unsigned long get_absolute_addr( char* symbol_name, FILE* file, Elf64_Ehdr heade
     return 0;
 }
 
-unsigned long get_plt(FILE* file, Elf64_Ehdr header1, Elf64_Shdr* sectable, int index) {
+unsigned long get_plt(char* exe_file_name, int index) {
 
-    int index_of_strtab = header1.e_shstrndx;
-    Elf64_Shdr strtab_header = sectable[index_of_strtab];
-    char strtab[strtab_header.sh_size];
-    fseek(file, strtab_header.sh_offset, SEEK_SET);
-    fread(strtab, strtab_header.sh_size, 1, file);
+    FILE* file = fopen(exe_file_name, "rb"); // get file header and sectable
+    Elf64_Ehdr header;
+    fseek(file, 0, SEEK_SET);
+    fread(&header, sizeof(Elf64_Ehdr), 1, file);
 
-    int length;
+    int header_num = header.e_shnum;
+    Elf64_Shdr sectable[header_num];
+    fseek(file, header.e_shoff, SEEK_SET);
+    fread(sectable, sizeof(Elf64_Shdr), header_num, file);
+
+    int index_of_strtab = header.e_shstrndx;
+    Elf64_Shdr strtab = sectable[index_of_strtab];
+    char shstrtab[strtab.sh_size];
+    fseek(file, strtab.sh_offset, SEEK_SET);
+    fread(shstrtab, strtab.sh_size, 1, file);
 
     //get .plt
+    int length;
     Elf64_Shdr plt;
-    for (int i = 0; i < header1.e_shnum; i++) {
-        length = table_len(strtab, sectable[i].sh_name);
+    for (int i = 0; i < header_num; i++) {
+        length = table_len(shstrtab, sectable[i].sh_name);
+        char* source = shstrtab + sectable[i].sh_name;
         char name[length];
-        char* source = strtab + sectable[i].sh_name;
         strncpy(name, source, length);
 
-
-        if (strcmp(".plt", name) == 0) {
+        if (strcmp(".plt", name) == 0) { //check if correct
             plt = sectable[i];
         }
     }
 
-    return plt.sh_addr + plt.sh_entsize * (index+1);
+    return plt.sh_addr + plt.sh_entsize * (index+1); // remember to change
 }
 
 
