@@ -178,17 +178,6 @@ void run_dubugger(pid_t child_pid, unsigned long addr) {
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
     }
-}
-
-
-
-
-
-    if(out of return)
-        print rax
-    printf
-
-
 
 }
 
@@ -209,7 +198,6 @@ int main(int argc, char *const argv[]) {
         pid_t child_pid;
         child_pid = run_target(argv[1]);
         run_debugger(child_pid,addr);
-
     }
 
 
