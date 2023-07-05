@@ -43,6 +43,72 @@ int table_len(char* strtab, Elf64_Word st_name) {
 }
 
 
+Elf64_Addr get_absolute_addr( char* symbol_name, FILE* file, Elf64_Ehdr header1, Elf64_Shdr* sectable){
+    Elf64_Shdr my_relaplt_table;
+    Elf64_Shdr my_dynsym;
+    Elf64_Shdr my_dynstr;
+
+    Elf64_Shdr my_strtab = sectable[header1.e_shstrndx];
+    char strtab_arr [my_strtab.sh_size];
+    fseek(file, my_strtab.sh_offset, SEEK_SET);
+    fread(strtab_arr, my_strtab.sh_size, 1, file);
+
+    int length;
+
+    for (int i = 0; i < header1.e_shnum; i++) {
+        if (sectable[i].sh_type == 4) {//check if RELA.plt_TABLE
+            my_relaplt_table = sectable[i];
+        }
+        if (sectable[i].sh_type == 11) {//check if DYNSYM_TABLE
+            my_dynsym = sectable[i];
+        }
+
+        length = table_len(strtab_arr, sectable[i].sh_name);
+        char name[length];
+        char* source = strtab_arr + sectable[i].sh_name;
+        strncpy(name, source, length);
+
+        if (strcmp(".dynstr", name) == 0)//check if DYNSTR_TABLE
+        {
+            my_dynstr = sectable[i];
+        }
+    }
+
+    int rela_plt_total_size = my_relaplt_table.sh_size;
+    int rela_numentries = (int) (rela_plt_total_size / sizeof(Elf64_Rela));
+    Elf64_Rela rela_symbols[rela_numentries];
+    fseek(file, my_relaplt_table.sh_offset, SEEK_SET);
+    fread(rela_symbols, sizeof(Elf64_Rela), rela_numentries, file);
+
+    int dynsym_total_size = my_dynsym.sh_size;
+    int numentries = (int) (dynsym_total_size / sizeof(Elf64_Sym));
+    Elf64_Sym dyn_symbols[numentries];
+    fseek(file, my_dynsym.sh_offset, SEEK_SET);
+    fread(dyn_symbols, sizeof(Elf64_Sym), numentries, file);
+
+    char dynstr[my_dynstr.sh_size];
+    fseek(file, my_dynstr.sh_offset, SEEK_SET);
+    fread(dynstr, my_dynstr.sh_size, 1, file);
+
+    Elf64_Word dynsymbol_index;
+
+    for (int i = 0; i < rela_numentries; i++)
+    {
+         dynsymbol_index = ELF64_R_SYM(rela_symbols[i].r_info);
+         length = table_len(dynstr,dyn_symbols[dynsymbol_index].st_name);
+         char name[length];
+         char* source = dynstr + dyn_symbols[dynsymbol_index].st_name;
+         strncpy(name, source, length);
+         if(strcmp(symbol_name, name)==0)
+         {
+             //return rela_symbols[i].r_offset;
+             return dyn_symbols[dynsymbol_index].st_value;
+         }
+     }
+    return 0;
+}
+
+
 unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val) {
     int symbol_name_length = strlen(symbol_name);
     FILE *file = fopen(exe_file_name, "rb");
@@ -113,8 +179,9 @@ unsigned long find_symbol(char* symbol_name, char* exe_file_name, int* error_val
     }
     if (is_global && !defined) {
         *error_val = -4;
+        Elf64_Addr dyn_addr = get_absolute_addr(symbol_name, file, header1, sectable);
         fclose(file);
-        return 0;
+        return  dyn_addr;
     }
     if (is_local && !is_global) {
         *error_val = -2;
@@ -130,7 +197,7 @@ pid_t run_target(const char * programname){
     }
     else if(pid==0){
     if(ptrace(PTRACE_TRACEME,0,NULL,NULL)<0){
-        perror("ptrace")
+        perror("ptrace");
         exit(1);
     }
     execl(programname,programname,NULL);
@@ -142,13 +209,13 @@ pid_t run_target(const char * programname){
 }
 
 
-void run_dubugger(pid_t child_pid, unsigned long addr) {
+void run_debugger(pid_t child_pid, unsigned long addr) {
     int wait_status;
     int icounter = 0;
     struct user_regs_struct regs;
     int curr_rsp;
     bool end = false;
-    long data = ptrace(PTRACE_PEEKTEXT, chikd_pid, (void *) addr, NULL);
+    long data = ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, NULL);
     unsigned long data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
     ptrace(PTRACE_PEEKTEXT, child_pid, (void *) addr, (void *) data_trap);
     ptrace(PTRACE_CONT, child_pid, NULL, NULL);
@@ -163,7 +230,7 @@ void run_dubugger(pid_t child_pid, unsigned long addr) {
         regs.rip-=1;
         ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
         while (!end) {
-            if (ptrace(PTRACE_SINGLESTEP, chil_pid, NULL, NULL) < 0) {
+            if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0) {
                 perror("ptrace");
                 return;
             }
@@ -178,8 +245,8 @@ void run_dubugger(pid_t child_pid, unsigned long addr) {
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
     }
-
 }
+
 
 
 
@@ -198,6 +265,7 @@ int main(int argc, char *const argv[]) {
         pid_t child_pid;
         child_pid = run_target(argv[1]);
         run_debugger(child_pid,addr);
+
     }
 
 
